@@ -59,6 +59,41 @@ Test your PII masking/redaction pipeline:
 ./pii-test.sh
 ```
 
+### Process Monitoring (Standalone)
+
+Monitor a process without generating load:
+
+```bash
+# Monitor by process name
+./monitor-only.sh edgedelta
+
+# Monitor by PID
+./monitor-only.sh --monitor-pid 12345
+```
+
+Output:
+```
+[MONITOR] pid: 12345 | cpu: 45.3% | memory: 234.5MB | threads: 28
+```
+
+### Process Monitoring with Load
+
+Monitor a process while generating load to observe performance impact:
+
+```bash
+# Monitor edgedelta process
+./monitor-with-load.sh edgedelta
+
+# Monitor different process
+./monitor-with-load.sh myapp
+```
+
+Output shows both load generation stats and process metrics:
+```
+[STATS] current: 1000 logs/sec, 0.64 MB/s | avg: 1000 logs/sec | total: 5000 | errors: 0 | backpressure: 0 (0.0%)
+[MONITOR] pid: 12345 | cpu: 45.3% | memory: 234.5MB | threads: 28
+```
+
 ## Environment Variables
 
 All scripts support the following environment variables:

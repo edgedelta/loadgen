@@ -22,14 +22,17 @@ import (
 
 // Config holds the load generator configuration.
 type Config struct {
-	Endpoint    string
-	Period      time.Duration
-	Format      string
-	Number      int
-	ContentType string
-	Timeout     time.Duration
-	TotalTime   time.Duration
-	Workers     int
+	Endpoint        string
+	Period          time.Duration
+	Format          string
+	Number          int
+	ContentType     string
+	Timeout         time.Duration
+	TotalTime       time.Duration
+	Workers         int
+	MonitorPID      int
+	MonitorProcess  string
+	MonitorInterval time.Duration
 }
 
 // LogMessage represents a structured log entry.
@@ -139,9 +142,6 @@ func (s *Stats) print() {
 func main() {
 	config := parseFlags()
 
-	log.Printf("Starting HTTP log generator - endpoint=%s format=%s workers=%d period=%s\n",
-		config.Endpoint, config.Format, config.Workers, config.Period)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -163,6 +163,46 @@ func main() {
 		}()
 	}
 
+	// Determine monitoring PID if monitoring is enabled.
+	var processStats *ProcessStats
+	if config.MonitorProcess != "" {
+		pid, err := findProcessByName(config.MonitorProcess)
+		if err != nil {
+			log.Fatalf("Failed to find process '%s': %v", config.MonitorProcess, err)
+		}
+		processStats = &ProcessStats{
+			pid:         pid,
+			processName: config.MonitorProcess,
+		}
+		log.Printf("Found process '%s' with PID: %d", config.MonitorProcess, pid)
+	} else if config.MonitorPID > 0 {
+		processStats = &ProcessStats{
+			pid: config.MonitorPID,
+		}
+		log.Printf("Monitoring process PID: %d", config.MonitorPID)
+	}
+
+	// Determine mode: monitoring-only vs concurrent vs normal.
+	monitoringEnabled := processStats != nil
+	endpointProvided := flag.Lookup("endpoint").Value.String() != flag.Lookup("endpoint").DefValue
+
+	if monitoringEnabled && !endpointProvided {
+		// Mode 2: Standalone monitoring only.
+		log.Printf("Starting monitoring-only mode (interval: %s)", config.MonitorInterval)
+		runMonitoringOnly(ctx, processStats, config.MonitorInterval)
+		return
+	}
+
+	if monitoringEnabled {
+		// Mode 1: Concurrent monitoring + load generation.
+		log.Printf("Starting concurrent monitoring (interval: %s)", config.MonitorInterval)
+		go monitorProcess(ctx, processStats, config.MonitorInterval)
+	}
+
+	// Normal load generation (with or without monitoring).
+	log.Printf("Starting HTTP log generator - endpoint=%s format=%s workers=%d period=%s\n",
+		config.Endpoint, config.Format, config.Workers, config.Period)
+
 	if err := run(ctx, config); err != nil {
 		log.Fatalf("Error: %v", err)
 	}
@@ -177,17 +217,23 @@ func parseFlags() *Config {
 	timeout := flag.Duration("timeout", 30*time.Second, "HTTP request timeout")
 	totalTime := flag.Duration("total-time", 0, "Total time to run (0 means forever)")
 	workers := flag.Int("workers", 1, "Number of concurrent workers")
+	monitorPID := flag.Int("monitor-pid", 0, "PID of process to monitor (0 means disabled)")
+	monitorProcess := flag.String("monitor-process", "", "Process name to monitor (e.g., 'edgedelta')")
+	monitorInterval := flag.Duration("monitor-interval", 5*time.Second, "Interval for process monitoring stats")
 	flag.Parse()
 
 	return &Config{
-		Endpoint:    *endpoint,
-		Period:      *period,
-		Format:      *format,
-		Number:      *number,
-		ContentType: *contentType,
-		Timeout:     *timeout,
-		TotalTime:   *totalTime,
-		Workers:     *workers,
+		Endpoint:        *endpoint,
+		Period:          *period,
+		Format:          *format,
+		Number:          *number,
+		ContentType:     *contentType,
+		Timeout:         *timeout,
+		TotalTime:       *totalTime,
+		Workers:         *workers,
+		MonitorPID:      *monitorPID,
+		MonitorProcess:  *monitorProcess,
+		MonitorInterval: *monitorInterval,
 	}
 }
 

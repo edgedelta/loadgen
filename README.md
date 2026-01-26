@@ -10,6 +10,8 @@ A high-performance HTTP log generator for load testing log ingestion pipelines a
 - **Continuous mode**: Maximum speed testing with `--period 0`
 - **Real-time stats**: Current and average throughput metrics
 - **Backpressure detection**: Tracks 429/503 responses
+- **Process monitoring**: Monitor CPU, memory, and threads of any process
+- **Cross-platform**: Supports macOS and Linux
 - **Zero dependencies**: Only requires `gofakeit` for data generation
 
 ## Installation
@@ -78,7 +80,7 @@ Test at ~48K logs/sec (as used in our blog post):
 ```
 Usage: httploggen [options]
 
-Options:
+Load Generation Options:
   -endpoint string
         HTTP endpoint to send logs to (default "http://localhost:4547")
 
@@ -102,6 +104,16 @@ Options:
 
   -timeout duration
         HTTP request timeout (default 30s)
+
+Process Monitoring Options:
+  -monitor-process string
+        Process name to monitor (e.g., 'edgedelta')
+
+  -monitor-pid int
+        PID of process to monitor (0 means disabled)
+
+  -monitor-interval duration
+        Interval for process monitoring stats (default 5s)
 ```
 
 ## Log Formats
@@ -213,6 +225,51 @@ Pure PII data for testing masking/redaction:
     --number 10 \
     --period 1s
 ```
+
+### Process Monitoring
+
+Monitor a process without generating load:
+
+```bash
+# Monitor by process name
+./httploggen --monitor-process edgedelta
+
+# Monitor by PID
+./httploggen --monitor-pid 12345
+
+# Custom monitoring interval (default is 5s)
+./httploggen --monitor-process myapp --monitor-interval 2s
+```
+
+**Output:**
+```
+[MONITOR] pid: 12345 | cpu: 45.3% | memory: 234.5MB | threads: 28
+```
+
+Monitor a process while generating load:
+
+```bash
+# Observe how load impacts the monitored process
+./httploggen \
+    --endpoint http://localhost:8085 \
+    --format nginx_log \
+    --workers 48 \
+    --period 10ms \
+    --monitor-process edgedelta
+```
+
+**Output:**
+```
+[STATS] current: 1000 logs/sec, 0.64 MB/s | avg: 1000 logs/sec | total: 5000 | errors: 0 | backpressure: 0 (0.0%)
+[MONITOR] pid: 12345 | cpu: 45.3% | memory: 234.5MB | threads: 28
+```
+
+**Monitoring Metrics:**
+- **cpu**: CPU usage percentage
+- **memory**: Resident memory (RSS) in megabytes
+- **threads**: Number of threads
+
+**Platforms Supported:** macOS and Linux
 
 ## Understanding the Stats
 
