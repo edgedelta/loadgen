@@ -1,0 +1,10 @@
+# CODEOWNERS file for httploggen
+# This file defines who is responsible for code in this repository
+# and automatically requests reviews from code owners.
+#
+# More info: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owners for everything in the repo
+# Pipeline team is responsible for the load generator
+# DevOps team is responsible for infrastructure and deployment
+* @edgedelta/pipeline @edgedelta/devops
