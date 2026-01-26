@@ -21,11 +21,11 @@ A high-performance HTTP log generator for load testing log ingestion pipelines a
 git clone https://github.com/edgedelta/httploggen.git
 cd httploggen
 
-# Build
-go build -o httploggen main.go
+# Build (builds all .go files in the package)
+go build -o httploggen
 
 # Or run directly
-go run main.go --help
+go run . --help
 ```
 
 ## Quick Start
@@ -362,13 +362,13 @@ go test -v ./...
 
 ```bash
 # Linux
-GOOS=linux GOARCH=amd64 go build -o httploggen-linux main.go
+GOOS=linux GOARCH=amd64 go build -o httploggen-linux
 
 # macOS
-GOOS=darwin GOARCH=amd64 go build -o httploggen-macos main.go
+GOOS=darwin GOARCH=amd64 go build -o httploggen-macos
 
 # Windows
-GOOS=windows GOARCH=amd64 go build -o httploggen.exe main.go
+GOOS=windows GOARCH=amd64 go build -o httploggen.exe
 ```
 
 ## Contributing

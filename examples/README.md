@@ -7,7 +7,7 @@ Pre-configured test scripts for common use cases.
 1. Build httploggen in the parent directory:
    ```bash
    cd ..
-   go build -o httploggen main.go
+   go build -o httploggen
    ```
 
 2. Make scripts executable:
