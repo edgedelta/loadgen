@@ -4,7 +4,6 @@ httploggen-*
 *.exe
 
 # Go
-go.sum
 *.test
 *.prof
 
