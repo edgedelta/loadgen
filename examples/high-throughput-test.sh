@@ -2,7 +2,7 @@
 # High throughput test - ~48K logs/sec for 1 minute
 # This is the test used in our blog post comparing log collectors
 
-../httploggen \
+../loadgen \
     --endpoint ${ENDPOINT:-http://localhost:8085} \
     --format nginx_log \
     --number 1 \

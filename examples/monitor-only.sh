@@ -5,11 +5,11 @@
 PROCESS_NAME=${1:-edgedelta}
 
 if [[ "$1" == "--monitor-pid" ]]; then
-    ../httploggen \
+    ../loadgen \
         --monitor-pid $2 \
         --monitor-interval 5s
 else
-    ../httploggen \
+    ../loadgen \
         --monitor-process "$PROCESS_NAME" \
         --monitor-interval 5s
 fi

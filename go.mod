@@ -1,4 +1,4 @@
-module github.com/edgedelta/httploggen
+module github.com/edgedelta/loadgen
 
 go 1.25.5
 

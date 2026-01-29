@@ -4,10 +4,10 @@ Pre-configured test scripts for common use cases.
 
 ## Setup
 
-1. Build httploggen in the parent directory:
+1. Build loadgen in the parent directory:
    ```bash
    cd ..
-   go build -o httploggen
+   go build -o loadgen
    ```
 
 2. Make scripts executable:
@@ -118,4 +118,4 @@ All scripts support the following environment variables:
 
 ## Customization
 
-Feel free to modify these scripts for your specific testing needs. The scripts are simple shell wrappers around the httploggen binary.
+Feel free to modify these scripts for your specific testing needs. The scripts are simple shell wrappers around the loadgen binary.

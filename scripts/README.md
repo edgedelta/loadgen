@@ -1,13 +1,13 @@
 # Benchmark Scripts
 
-Scripts for running standardized load benchmarks against log collector/ingestion services (EdgeDelta, ObservIQ, Cribl) using [httploggen](../README.md).
+Scripts for running standardized load benchmarks against log collector/ingestion services (EdgeDelta, ObservIQ, Cribl) using [loadgen](../README.md).
 
 ## Overview
 
 | Script | Purpose |
 |--------|---------|
 | **trigger_benchmark.sh** | Entry point: selects app, creates logs, and invokes the benchmark runner |
-| **run_benchmark.sh** | Runs the actual benchmark: starts the service, drives httploggen at multiple worker levels, collects stats |
+| **run_benchmark.sh** | Runs the actual benchmark: starts the service, drives loadgen at multiple worker levels, collects stats |
 
 ## Quick Start
 
@@ -32,7 +32,7 @@ Output is written to `benchmark_results/<app>_<timestamp>.log` and also printed 
 
 - **Linux** with systemd (services are started/stopped via `systemctl`)
 - **sudo** for `systemctl start` / `systemctl stop`
-- **httploggen** built at the project root: `go build -o httploggen` in the repo root
+- **loadgen** built at the project root: `go build -o loadgen` in the repo root
 - **Run from `scripts/`**: both scripts expect to be executed from the `scripts/` directory
 
 ### Supported Apps and Services
@@ -79,7 +79,7 @@ Orchestrates a full benchmark run: app selection, log capture, and invocation of
 
 ## run_benchmark.sh
 
-Runs the httploggen benchmark for a given app: manages the systemd service, then drives httploggen at 80, 100, and 120 workers with process monitoring.
+Runs the loadgen benchmark for a given app: manages the systemd service, then drives loadgen at 80, 100, and 120 workers with process monitoring.
 
 ### Usage
 
@@ -96,11 +96,11 @@ Runs the httploggen benchmark for a given app: manages the systemd service, then
    - Waits 30 seconds, then checks that the service is active. Exits on failure.
 
 2. **Cleanup**
-   - Uses a `trap` on `EXIT` and `ERR` to run `systemctl stop <service>` so the service is stopped even if the script or httploggen fails.
+   - Uses a `trap` on `EXIT` and `ERR` to run `systemctl stop <service>` so the service is stopped even if the script or loadgen fails.
 
 3. **Benchmark iterations**
    - For each of **80, 100, 120** workers:
-     - Runs httploggen with:
+     - Runs loadgen with:
        - `--endpoint http://localhost:<port>`
        - `--format nginx_log`
        - `--number 1`
@@ -112,7 +112,7 @@ Runs the httploggen benchmark for a given app: manages the systemd service, then
          - **cribl**: `--monitor-pid <cribl server pid>`, plus a separate monitor for the `cribl.js` process.
      - Waits 60 seconds before the next worker level.
 
-### httploggen parameters (summary)
+### loadgen parameters (summary)
 
 | Option | Value | Purpose |
 |--------|-------|---------|
@@ -130,7 +130,7 @@ Runs the httploggen benchmark for a given app: manages the systemd service, then
 
 ### Console
 
-You’ll see httploggen’s `[STATS]` and `[MONITOR]` lines, plus any errors, for each worker run.
+You’ll see loadgen’s `[STATS]` and `[MONITOR]` lines, plus any errors, for each worker run.
 
 ### Log files
 
@@ -158,11 +158,11 @@ If you prefer to run from the repo root:
 ./scripts/trigger_benchmark.sh edgedelta
 ```
 
-This will fail unless `run_benchmark.sh` and `../httploggen` work from `scripts/`. `run_benchmark.sh` uses `../httploggen`, so the repo must be laid out as:
+This will fail unless `run_benchmark.sh` and `../loadgen` work from `scripts/`. `run_benchmark.sh` uses `../loadgen`, so the repo must be laid out as:
 
 ```text
 <repo>/
-  httploggen      # binary
+  loadgen      # binary
   scripts/
     run_benchmark.sh
     trigger_benchmark.sh
@@ -178,7 +178,7 @@ cd scripts && ./trigger_benchmark.sh edgedelta
 
 ## Typical Workflow
 
-1. Build httploggen: `go build -o httploggen` (in project root).
+1. Build loadgen: `go build -o loadgen` (in project root).
 2. Ensure the target service is installed and the correct systemd unit and port are in use.
 3. `cd scripts`
 4. `./trigger_benchmark.sh [edgedelta|observiq|cribl]`
@@ -194,8 +194,8 @@ cd scripts && ./trigger_benchmark.sh edgedelta
 | `Missing app` / `Invalid app` | Pass `edgedelta`, `observiq`, or `cribl` to `run_benchmark.sh`. |
 | `Failed to start <service>` | Service installed? `systemctl status <service>`. |
 | `Service not active after start` | Service logs: `journalctl -u <service> -n 50`. |
-| `Connection refused` or similar from httploggen | Service listening on the expected port? (`ss -tlnp` or `netstat -tlnp`). |
-| `../httploggen` not found | Build httploggen in the project root and run from `scripts/`. |
+| `Connection refused` or similar from loadgen | Service listening on the expected port? (`ss -tlnp` or `netstat -tlnp`). |
+| `../loadgen` not found | Build loadgen in the project root and run from `scripts/`. |
 
 ---
 
@@ -204,8 +204,8 @@ cd scripts && ./trigger_benchmark.sh edgedelta
 For **cribl**, `run_benchmark.sh`:
 
 - Finds PIDs for `cribl.js` and `cribl server`.
-- Starts an extra httploggen monitor for `cribl.js` in the background.
-- Runs the main httploggen with `--monitor-pid` for the `cribl server` process.
+- Starts an extra loadgen monitor for `cribl.js` in the background.
+- Runs the main loadgen with `--monitor-pid` for the `cribl server` process.
 - Stops the `cribl.js` monitor at the end of each iteration.
 
 If the Cribl processes or names differ on your system, you may need to adjust the `grep` patterns in `run_benchmark.sh`.

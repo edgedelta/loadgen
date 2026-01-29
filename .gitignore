@@ -1,6 +1,6 @@
 # Binaries
-httploggen
-httploggen-*
+loadgen
+loadgen-*
 *.exe
 
 # Go

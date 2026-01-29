@@ -4,7 +4,7 @@
 
 PROCESS_NAME=${1:-edgedelta}
 
-../httploggen \
+../loadgen \
     --endpoint ${ENDPOINT:-http://localhost:8085} \
     --format nginx_log \
     --number 10 \

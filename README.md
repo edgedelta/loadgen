@@ -5,7 +5,7 @@ A high-performance HTTP log generator for load testing log ingestion pipelines a
 ## Features
 
 - **High throughput**: 40K+ logs/sec with payload caching
-- **Multiple formats**: nginx, apache, masked PII data
+- **Multiple formats**: nginx, apache, masked PII data, Datadog agent
 - **Realistic data**: Generates fake PII (emails, credit cards, IBANs, MAC addresses)
 - **Continuous mode**: Maximum speed testing with `--period 0`
 - **Real-time stats**: Current and average throughput metrics
@@ -18,11 +18,11 @@ A high-performance HTTP log generator for load testing log ingestion pipelines a
 
 ```bash
 # Clone the repository
-git clone https://github.com/edgedelta/httploggen.git
-cd httploggen
+git clone https://github.com/edgedelta/loadgen.git
+cd loadgen
 
 # Build (builds all .go files in the package)
-go build -o httploggen
+go build -o loadgen
 
 # Or run directly
 go run . --help
@@ -34,7 +34,7 @@ go run . --help
 
 ```bash
 # Send 1000 logs/sec to your endpoint
-./httploggen \
+./loadgen \
     --endpoint http://localhost:8085 \
     --format nginx_log \
     --number 1 \
@@ -47,7 +47,7 @@ go run . --help
 Test at ~48K logs/sec (as used in our blog post):
 
 ```bash
-./httploggen \
+./loadgen \
     --endpoint http://localhost:8085 \
     --format nginx_log \
     --number 1 \
@@ -66,7 +66,7 @@ Test at ~48K logs/sec (as used in our blog post):
 
 ```bash
 # Send as fast as possible
-./httploggen \
+./loadgen \
     --endpoint http://localhost:8085 \
     --format nginx_log \
     --number 100 \
@@ -78,14 +78,14 @@ Test at ~48K logs/sec (as used in our blog post):
 ## Command Line Options
 
 ```
-Usage: httploggen [options]
+Usage: loadgen [options]
 
 Load Generation Options:
   -endpoint string
         HTTP endpoint to send logs to (default "http://localhost:4547")
 
   -format string
-        Log format: nginx_log, apache_combined, masked_log (default "nginx_log")
+        Log format: nginx_log, apache_combined, masked_log, datadog_agent (default "nginx_log")
 
   -number int
         Number of logs per worker per period (default 1)
@@ -174,6 +174,35 @@ Pure PII data for testing masking/redaction:
 }
 ```
 
+### datadog_agent
+
+Generates logs in the Datadog agent log format (JSON array of log entries sent to `/api/v2/logs`):
+
+```json
+[
+  {
+    "message": "synthetic datadog log id=0 level=info 192.168.1.1 - - [29/Jan/2026:15:30:45 +0000] \"GET /api/users HTTP/1.1\" 200 1234",
+    "status": "info",
+    "timestamp": 1738164645000,
+    "hostname": "host-0",
+    "service": "web-api",
+    "ddsource": "go",
+    "ddtags": "env:local,team:edgedelta,source:loadgen"
+  }
+]
+```
+
+Usage:
+
+```bash
+./loadgen \
+    --endpoint http://localhost:8126/api/v2/logs \
+    --format datadog_agent \
+    --number 200 \
+    --workers 8 \
+    --period 100ms
+```
+
 ## Usage Examples
 
 ### Test Local Log Collector
@@ -182,7 +211,7 @@ Pure PII data for testing masking/redaction:
 # Start your log collector (e.g., Fluentd, Logstash, etc.)
 # Then send 10 logs/sec for 30 seconds
 
-./httploggen \
+./loadgen \
     --endpoint http://localhost:8080/logs \
     --format nginx_log \
     --number 10 \
@@ -194,7 +223,7 @@ Pure PII data for testing masking/redaction:
 
 ```bash
 # 50 workers × 10 logs/sec = 500 logs/sec total
-./httploggen \
+./loadgen \
     --endpoint http://localhost:8080/logs \
     --format nginx_log \
     --number 1 \
@@ -207,7 +236,7 @@ Pure PII data for testing masking/redaction:
 
 ```bash
 # Send pure PII data to test your masking pipeline
-./httploggen \
+./loadgen \
     --endpoint http://localhost:8080/logs \
     --format masked_log \
     --number 100 \
@@ -218,7 +247,7 @@ Pure PII data for testing masking/redaction:
 
 ```bash
 # Send plain text instead of JSON
-./httploggen \
+./loadgen \
     --endpoint http://localhost:8080/logs \
     --format nginx_log \
     --content-type text/plain \
@@ -232,13 +261,13 @@ Monitor a process without generating load:
 
 ```bash
 # Monitor by process name
-./httploggen --monitor-process edgedelta
+./loadgen --monitor-process edgedelta
 
 # Monitor by PID
-./httploggen --monitor-pid 12345
+./loadgen --monitor-pid 12345
 
 # Custom monitoring interval (default is 5s)
-./httploggen --monitor-process myapp --monitor-interval 2s
+./loadgen --monitor-process myapp --monitor-interval 2s
 ```
 
 **Output:**
@@ -250,7 +279,7 @@ Monitor a process while generating load:
 
 ```bash
 # Observe how load impacts the monitored process
-./httploggen \
+./loadgen \
     --endpoint http://localhost:8085 \
     --format nginx_log \
     --workers 48 \
@@ -308,7 +337,7 @@ From our [blog post](https://edgedelta.com/blog) comparing log collectors:
 
 ### Test Command
 ```bash
-./httploggen --endpoint http://localhost:8085 \
+./loadgen --endpoint http://localhost:8085 \
     --format nginx_log --number 1 --workers 120 \
     --period 1ms --total-time 1m
 ```
@@ -316,9 +345,9 @@ From our [blog post](https://edgedelta.com/blog) comparing log collectors:
 ### Build and Run
 
 ```bash
-docker build -t httploggen .
+docker build -t loadgen .
 
-docker run httploggen \
+docker run loadgen \
     --endpoint http://host.docker.internal:8085 \
     --format nginx_log \
     --number 1 \
@@ -341,7 +370,7 @@ Failed to send HTTP request: dial tcp: connect: connection refused
 
 If you're not reaching the expected throughput:
 
-1. **Check CPU**: Run `top` - if httploggen isn't using multiple cores, increase `--workers`
+1. **Check CPU**: Run `top` - if loadgen isn't using multiple cores, increase `--workers`
 2. **Network limits**: Test with `localhost` first to rule out network issues
 3. **Server bottleneck**: Check if the receiving server is the bottleneck (high CPU, backpressure)
 4. **Period too large**: Try smaller `--period` or use `--period 0` for maximum speed
@@ -362,13 +391,13 @@ go test -v ./...
 
 ```bash
 # Linux
-GOOS=linux GOARCH=amd64 go build -o httploggen-linux
+GOOS=linux GOARCH=amd64 go build -o loadgen-linux
 
 # macOS
-GOOS=darwin GOARCH=amd64 go build -o httploggen-macos
+GOOS=darwin GOARCH=amd64 go build -o loadgen-macos
 
 # Windows
-GOOS=windows GOARCH=amd64 go build -o httploggen.exe
+GOOS=windows GOARCH=amd64 go build -o loadgen.exe
 ```
 
 ## Contributing

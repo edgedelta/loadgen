@@ -1,7 +1,7 @@
 #!/bin/bash
 # Basic load test - 1000 logs/sec for 30 seconds
 
-../httploggen \
+../loadgen \
     --endpoint ${ENDPOINT:-http://localhost:8085} \
     --format nginx_log \
     --number 10 \

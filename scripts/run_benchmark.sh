@@ -46,7 +46,7 @@ if ! sudo systemctl is-active --quiet "$service"; then
 fi
 
 for i in 80 100 120; do
-  echo "Starting httploggen with ${i} workers for $app"
+  echo "Starting loadgen with ${i} workers for $app"
   
   # Get service PID
   if [[ "$app" == "cribl" ]]; then
@@ -62,11 +62,11 @@ for i in 80 100 120; do
     
     # Start monitor for cribl.js if PID found
     if [[ -n "$cribl_pid" ]]; then
-      ../httploggen --monitor-pid "$cribl_pid" &
+      ../loadgen --monitor-pid "$cribl_pid" &
       cribl_monitor_pid=$!
     fi
 
-    ../httploggen \
+    ../loadgen \
       --endpoint http://localhost:$port \
       --format nginx_log \
       --number 1 \
@@ -76,7 +76,7 @@ for i in 80 100 120; do
       --monitor-pid "${service_pid}"
     kill "$cribl_monitor_pid"
   else
-    ../httploggen \
+    ../loadgen \
       --endpoint http://localhost:$port \
       --format nginx_log \
       --number 1 \
@@ -86,7 +86,7 @@ for i in 80 100 120; do
       --monitor-process "${app}"
   fi
 
-  echo "Finished httploggen with ${i} workers for $app"
+  echo "Finished loadgen with ${i} workers for $app"
 
   # Wait for 60 seconds before starting next iteration
   sleep 60

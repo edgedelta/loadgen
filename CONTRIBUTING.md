@@ -1,4 +1,4 @@
-# Contributing to httploggen
+# Contributing to loadgen
 
 Thank you for your interest in contributing! We welcome contributions from the community.
 
@@ -24,11 +24,11 @@ Thank you for your interest in contributing! We welcome contributions from the c
 
 ```bash
 # Clone your fork
-git clone https://github.com/YOUR_USERNAME/httploggen.git
-cd httploggen
+git clone https://github.com/YOUR_USERNAME/loadgen.git
+cd loadgen
 
 # Build
-go build -o httploggen main.go
+go build -o loadgen main.go
 
 # Test
 go run main.go --endpoint http://localhost:8080 --period 1s --total-time 10s
