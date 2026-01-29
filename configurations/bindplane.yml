@@ -1,0 +1,102 @@
+# This configuration is managed by Bindplane.
+# Configuration: benchmark:14
+receivers:
+    http/source0_01KFWXEAMFFHNR3NZ18R4WQZYY:
+        endpoint: 0.0.0.0:7075
+processors:
+    batch/s3_dest-0__processor1:
+        send_batch_max_size: 8192
+        send_batch_size: 8192
+        timeout: 30s
+    filter/source0_01KFWXEAMFFHNR3NZ18R4WQZYY__processor0__logs:
+        error_mode: ignore
+        logs:
+            log_record:
+                - attributes["pii.color"] == "Green"
+    lookup/source0_01KFWXEAMFFHNR3NZ18R4WQZYY__processor3:
+        context: attributes
+        csv: /opt/observiq-otel-collector/lookup.csv
+        field: ip_address
+    redaction/source0_01KFWXEAMFFHNR3NZ18R4WQZYY__processor1:
+        allow_all_keys: true
+        allowed_values: null
+        blocked_key_patterns: null
+        blocked_values:
+            - '\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]){11,31}(?:\s[A-Z0-9])*\b'
+            - \b([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b
+            - \b(?:3[47][ -]?\d{4}[ -]?\d{6}[ -]?\d{3}|4\d{3}(?:[ -]?\d{4}){3}|5[1-5]\d{2}(?:[ -]?\d{4}){3}|6(?:011|5\d{2})(?:[ -]?\d{4}){3}|35(?:2[89]|[3-8]\d)(?:[ -]?\d{4}){3}|3(?:0[0-5]|[68]\d)(?:[ -]?\d){11}|62(?:[ -]?\d){14,17})\b
+            - \b(?:(?:19|20)?\d{2}[-/])?(?:0?[1-9]|1[0-2])[-/](?:0?[1-9]|[12]\d|3[01])(?:[-/](?:19|20)?\d{2})?\b
+            - \b[a-zA-Z0-9._/\+\-—|]+@[A-Za-z0-9\-—|]+\.[a-zA-Z|]{2,6}\b
+            - \b(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\b
+            - \b(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}\b
+            - \b((\+|\b)[1l][\-\. ])?\(?\b[\dOlZSB]{3,5}([\-\. ]|\) ?)[\dOlZSB]{3}[\-\. ][\dOlZSB]{4}\b
+            - \+[1-9]\d{0,2}(?:[-.\s]?\(?\d+\)?(?:[-.\s]?\d+)*)\b
+            - \b\d{3}[- ]\d{2}[- ]\d{4}\b
+            - \b[A-Z][A-Za-z\s\.]+,\s{0,1}[A-Z]{2}\b
+            - \b\d+\s[A-z]+\s[A-z]+(\s[A-z]+)?\s*\d*\b
+            - \b\d{5}(?:[-\s]\d{4})?\b
+            - \b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\b
+        ignored_keys:
+            - __bindplane_id__
+        redact_all_types: true
+    sampling/s3_dest-0__processor0:
+        drop_ratio: 0.05
+    transform/source0_01KFWXEAMFFHNR3NZ18R4WQZYY__processor2__logs:
+        error_mode: ignore
+        log_statements:
+            - context: log
+              statements:
+                - set(cache["copy_field"], body["pii"]["ipv4"]) where body["pii"]["ipv4"] !=nil and true
+                - set(attributes["ip_address"], cache["copy_field"]) where cache["copy_field"] != nil
+exporters:
+    awss3/s3_dest:
+        marshaler: otlp_json
+        resource_attrs_to_s3:
+            s3_prefix: com.awss3.prefix
+        s3uploader:
+            compression: gzip
+            file_prefix: null
+            region: us-west-2
+            retry_max_attempts: 3
+            retry_max_backoff: 20s
+            retry_mode: standard
+            s3_bucket: <REDACTED>
+            s3_partition_format: year=%Y/month=%m/day=%d/hour=%H/minute=%M
+            s3_prefix: bindplane
+        sending_queue:
+            enabled: false
+        timeout: 30s
+extensions:
+    file_storage/s3_dest__persistent_queue_storage_extension:
+        compaction:
+            directory: ${OIQ_OTEL_COLLECTOR_HOME}/storage
+            on_rebound: true
+        create_directory: true
+        directory: ${OIQ_OTEL_COLLECTOR_HOME}/storage
+        fsync: true
+        timeout: 1s
+service:
+    extensions:
+        - file_storage/s3_dest__persistent_queue_storage_extension
+    pipelines:
+        logs/source0_01KFWXEAMFFHNR3NZ18R4WQZYY__s3_dest-0:
+            receivers:
+                - http/source0_01KFWXEAMFFHNR3NZ18R4WQZYY
+            processors:
+                - filter/source0_01KFWXEAMFFHNR3NZ18R4WQZYY__processor0__logs
+                - redaction/source0_01KFWXEAMFFHNR3NZ18R4WQZYY__processor1
+                - transform/source0_01KFWXEAMFFHNR3NZ18R4WQZYY__processor2__logs
+                - lookup/source0_01KFWXEAMFFHNR3NZ18R4WQZYY__processor3
+                - sampling/s3_dest-0__processor0
+                - batch/s3_dest-0__processor1
+            exporters:
+                - awss3/s3_dest
+    telemetry:
+        metrics:
+            readers:
+                - pull:
+                    exporter:
+                        prometheus:
+                            host: localhost
+                            port: 8888
+            level: normal
