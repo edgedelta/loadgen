@@ -5,7 +5,7 @@ A high-performance HTTP log generator for load testing log ingestion pipelines a
 ## Features
 
 - **High throughput**: 40K+ logs/sec with payload caching
-- **Multiple formats**: nginx, apache, masked PII data, Datadog agent
+- **Multiple formats**: nginx, apache, masked PII data, Datadog
 - **Realistic data**: Generates fake PII (emails, credit cards, IBANs, MAC addresses)
 - **Continuous mode**: Maximum speed testing with `--period 0`
 - **Real-time stats**: Current and average throughput metrics
@@ -85,7 +85,7 @@ Load Generation Options:
         HTTP endpoint to send logs to (default "http://localhost:4547")
 
   -format string
-        Log format: nginx_log, apache_combined, masked_log, datadog_agent (default "nginx_log")
+        Log format: nginx_log, apache_combined, masked_log, datadog (default "nginx_log")
 
   -number int
         Number of logs per worker per period (default 1)
@@ -174,7 +174,7 @@ Pure PII data for testing masking/redaction:
 }
 ```
 
-### datadog_agent
+### datadog
 
 Generates logs in the Datadog agent log format (JSON array of log entries sent to `/api/v2/logs`):
 
@@ -197,7 +197,7 @@ Usage:
 ```bash
 ./loadgen \
     --endpoint http://localhost:8126/api/v2/logs \
-    --format datadog_agent \
+    --format datadog \
     --number 200 \
     --workers 8 \
     --period 100ms

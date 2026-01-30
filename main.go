@@ -222,7 +222,7 @@ func main() {
 func parseFlags() *Config {
 	endpoint := flag.String("endpoint", "http://localhost:4547", "HTTP endpoint to send logs to")
 	period := flag.Duration("period", 2*time.Second, "Period between log generations (use 0 for continuous mode)")
-	format := flag.String("format", "nginx_log", "Log format: nginx_log, apache_combined, masked_log, datadog_agent")
+	format := flag.String("format", "nginx_log", "Log format: nginx_log, apache_combined, masked_log, datadog")
 	number := flag.Int("number", 1, "Number of logs per worker per period")
 	contentType := flag.String("content-type", "application/json", "Content-Type header")
 	timeout := flag.Duration("timeout", 30*time.Second, "HTTP request timeout")
@@ -404,7 +404,7 @@ func sendBatch(client *http.Client, config *Config, numLogs int, stats *Stats) e
 		}
 		body = cachedMaskedBody
 
-	case "datadog_agent":
+	case "datadog":
 		cachedDatadogOnce.Do(func() {
 			logs := make([]datadogLog, numLogs)
 			for i := 0; i < numLogs; i++ {
