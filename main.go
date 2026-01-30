@@ -43,6 +43,17 @@ type LogMessage struct {
 	PII       map[string]string `json:"pii,omitempty"`
 }
 
+// datadogLog represents a Datadog agent log entry.
+type datadogLog struct {
+	Message   string `json:"message"`
+	Status    string `json:"status"`
+	Timestamp int64  `json:"timestamp"`
+	Hostname  string `json:"hostname"`
+	Service   string `json:"service"`
+	Source    string `json:"ddsource"`
+	Tags      string `json:"ddtags"`
+}
+
 // MaskedData contains fake PII data for testing.
 type MaskedData struct {
 	Email      string `json:"email"`
@@ -211,7 +222,7 @@ func main() {
 func parseFlags() *Config {
 	endpoint := flag.String("endpoint", "http://localhost:4547", "HTTP endpoint to send logs to")
 	period := flag.Duration("period", 2*time.Second, "Period between log generations (use 0 for continuous mode)")
-	format := flag.String("format", "nginx_log", "Log format: nginx_log, apache_combined, masked_log")
+	format := flag.String("format", "nginx_log", "Log format: nginx_log, apache_combined, masked_log, datadog")
 	number := flag.Int("number", 1, "Number of logs per worker per period")
 	contentType := flag.String("content-type", "application/json", "Content-Type header")
 	timeout := flag.Duration("timeout", 30*time.Second, "HTTP request timeout")
@@ -364,12 +375,15 @@ func sendLogs(ctx context.Context, client *http.Client, config *Config, stats *S
 
 // Cached payloads for maximum throughput.
 var (
-	cachedMaskedOnce sync.Once
-	cachedMaskedBody []byte
-	cachedMaskedErr  error
-	cachedLogOnce    sync.Once
-	cachedLogBody    []byte
-	cachedLogErr     error
+	cachedMaskedOnce  sync.Once
+	cachedMaskedBody  []byte
+	cachedMaskedErr   error
+	cachedLogOnce     sync.Once
+	cachedLogBody     []byte
+	cachedLogErr      error
+	cachedDatadogOnce sync.Once
+	cachedDatadogBody []byte
+	cachedDatadogErr  error
 )
 
 func sendBatch(client *http.Client, config *Config, numLogs int, stats *Stats) error {
@@ -389,6 +403,19 @@ func sendBatch(client *http.Client, config *Config, numLogs int, stats *Stats) e
 			return fmt.Errorf("failed to marshal masked data: %w", cachedMaskedErr)
 		}
 		body = cachedMaskedBody
+
+	case "datadog":
+		cachedDatadogOnce.Do(func() {
+			logs := make([]datadogLog, numLogs)
+			for i := 0; i < numLogs; i++ {
+				logs[i] = generateDatadogLog(time.Now(), int64(i))
+			}
+			cachedDatadogBody, cachedDatadogErr = json.Marshal(logs)
+		})
+		if cachedDatadogErr != nil {
+			return fmt.Errorf("failed to marshal datadog logs: %w", cachedDatadogErr)
+		}
+		body = cachedDatadogBody
 
 	case "apache_combined":
 		cachedLogOnce.Do(func() {
@@ -570,4 +597,25 @@ func generateIBAN() string {
 func generateRandomStatus() string {
 	statuses := []string{"active", "pending", "completed", "processing", "failed", "success", "idle", "running"}
 	return statuses[rand.Intn(len(statuses))]
+}
+
+func generateDatadogLog(t time.Time, id int64) datadogLog {
+	hostnames := []string{"host-0", "host-1", "host-2", "host-3", "host-4"}
+	services := []string{"web-api", "auth-service", "payment-service", "order-service", "notification-service"}
+	sources := []string{"go", "python", "java", "nodejs", "nginx"}
+	levels := []string{"info", "info", "info", "warn", "error", "debug"}
+
+	level := levels[rand.Intn(len(levels))]
+	msg := fmt.Sprintf("synthetic datadog log id=%d level=%s %s",
+		id, level, generateNginxLog(t))
+
+	return datadogLog{
+		Message:   msg,
+		Status:    level,
+		Timestamp: t.UnixMilli(),
+		Hostname:  hostnames[rand.Intn(len(hostnames))],
+		Service:   services[rand.Intn(len(services))],
+		Source:    sources[rand.Intn(len(sources))],
+		Tags:      "env:local,team:edgedelta,source:loadgen",
+	}
 }

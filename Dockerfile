@@ -10,7 +10,7 @@ RUN go mod download
 COPY main.go ./
 
 # Build
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o httploggen main.go
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o loadgen main.go
 
 # Final stage
 FROM alpine:latest
@@ -20,7 +20,7 @@ RUN apk --no-cache add ca-certificates
 WORKDIR /root/
 
 # Copy binary from builder
-COPY --from=builder /app/httploggen .
+COPY --from=builder /app/loadgen .
 
-ENTRYPOINT ["./httploggen"]
+ENTRYPOINT ["./loadgen"]
 CMD ["--help"]

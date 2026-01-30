@@ -2,7 +2,7 @@
 # Maximum throughput test - continuous mode
 # Workers send requests as fast as possible without waiting
 
-../httploggen \
+../loadgen \
     --endpoint ${ENDPOINT:-http://localhost:8085} \
     --format nginx_log \
     --number 100 \
