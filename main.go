@@ -25,6 +25,7 @@ type Config struct {
 	Endpoint        string
 	Period          time.Duration
 	Format          string
+	FormatStyle     string
 	Number          int
 	ContentType     string
 	Timeout         time.Duration
@@ -33,6 +34,7 @@ type Config struct {
 	MonitorPID      int
 	MonitorProcess  string
 	MonitorInterval time.Duration
+	PayloadPoolSize int
 }
 
 // LogMessage represents a structured log entry.
@@ -66,6 +68,18 @@ type MaskedData struct {
 	Product    string `json:"product"`
 	Color      string `json:"color"`
 	Status     string `json:"status"`
+}
+
+// PayloadPool holds pre-generated and pre-marshaled payloads for variety without performance impact.
+type PayloadPool struct {
+	// Pre-marshaled JSON bytes for each format (one JSON object per slice entry).
+	nginxLogsBytes  [][]byte
+	apacheLogsBytes [][]byte
+	maskedDataBytes [][]byte
+	datadogBytes    [][]byte
+	// Raw text logs (not JSON).
+	nginxRawLogs  []string
+	apacheRawLogs []string
 }
 
 // Stats tracks performance metrics.
@@ -223,6 +237,7 @@ func parseFlags() *Config {
 	endpoint := flag.String("endpoint", "http://localhost:4547", "HTTP endpoint to send logs to")
 	period := flag.Duration("period", 2*time.Second, "Period between log generations (use 0 for continuous mode)")
 	format := flag.String("format", "nginx_log", "Log format: nginx_log, apache_combined, masked_log, datadog")
+	formatStyle := flag.String("format-style", "ndjson", "Format style: ndjson (newline-delimited JSON), array (JSON array), single (single JSON object)")
 	number := flag.Int("number", 1, "Number of logs per worker per period")
 	contentType := flag.String("content-type", "application/json", "Content-Type header")
 	timeout := flag.Duration("timeout", 30*time.Second, "HTTP request timeout")
@@ -231,12 +246,14 @@ func parseFlags() *Config {
 	monitorPID := flag.Int("monitor-pid", 0, "PID of process to monitor (0 means disabled)")
 	monitorProcess := flag.String("monitor-process", "", "Process name to monitor (e.g., 'edgedelta')")
 	monitorInterval := flag.Duration("monitor-interval", 5*time.Second, "Interval for process monitoring stats")
+	payloadPoolSize := flag.Int("payload-pool-size", 100, "Number of unique payloads to generate in the pool")
 	flag.Parse()
 
 	return &Config{
 		Endpoint:        *endpoint,
 		Period:          *period,
 		Format:          *format,
+		FormatStyle:     *formatStyle,
 		Number:          *number,
 		ContentType:     *contentType,
 		Timeout:         *timeout,
@@ -245,10 +262,113 @@ func parseFlags() *Config {
 		MonitorPID:      *monitorPID,
 		MonitorProcess:  *monitorProcess,
 		MonitorInterval: *monitorInterval,
+		PayloadPoolSize: *payloadPoolSize,
 	}
 }
 
+func generatePayloadPool(config *Config) *PayloadPool {
+	pool := &PayloadPool{}
+	poolSize := config.PayloadPoolSize
+
+	log.Printf("Generating payload pool with %d variants...", poolSize)
+
+	// Generate pool based on format and content-type.
+	// Pre-marshal all JSON payloads to eliminate marshaling from hot path.
+	switch config.Format {
+	case "masked_log":
+		pool.maskedDataBytes = make([][]byte, poolSize)
+		for i := range poolSize {
+			data := generateMaskedData()
+			marshaled, err := json.Marshal(data)
+			if err != nil {
+				log.Fatalf("Failed to marshal masked data: %v", err)
+			}
+			pool.maskedDataBytes[i] = marshaled
+		}
+
+	case "datadog":
+		pool.datadogBytes = make([][]byte, poolSize)
+		baseTime := time.Now()
+		for i := range poolSize {
+			// Vary timestamps slightly for realism.
+			t := baseTime.Add(time.Duration(i) * time.Millisecond)
+			logEntry := generateDatadogLog(t, int64(i))
+			marshaled, err := json.Marshal(logEntry)
+			if err != nil {
+				log.Fatalf("Failed to marshal datadog log: %v", err)
+			}
+			pool.datadogBytes[i] = marshaled
+		}
+
+	case "apache_combined":
+		if config.ContentType == "application/json" {
+			pool.apacheLogsBytes = make([][]byte, poolSize)
+			baseTime := time.Now()
+			for i := range poolSize {
+				t := baseTime.Add(time.Duration(i) * time.Millisecond)
+				logLine := generateApacheLog(t)
+				maskedData := generateMaskedData()
+
+				logMsg := LogMessage{
+					Timestamp: t.Format(time.RFC3339),
+					Message:   logLine,
+					AppType:   "apache",
+					PII:       convertMaskedDataToMap(maskedData),
+				}
+				marshaled, err := json.Marshal(logMsg)
+				if err != nil {
+					log.Fatalf("Failed to marshal apache log: %v", err)
+				}
+				pool.apacheLogsBytes[i] = marshaled
+			}
+		} else {
+			pool.apacheRawLogs = make([]string, poolSize)
+			baseTime := time.Now()
+			for i := range poolSize {
+				t := baseTime.Add(time.Duration(i) * time.Millisecond)
+				pool.apacheRawLogs[i] = generateApacheLog(t)
+			}
+		}
+
+	default: // nginx_log
+		if config.ContentType == "application/json" {
+			pool.nginxLogsBytes = make([][]byte, poolSize)
+			baseTime := time.Now()
+			for i := range poolSize {
+				t := baseTime.Add(time.Duration(i) * time.Millisecond)
+				logLine := generateNginxLog(t)
+				maskedData := generateMaskedData()
+
+				logMsg := LogMessage{
+					Timestamp: t.Format(time.RFC3339),
+					Message:   logLine,
+					AppType:   "nginx",
+					PII:       convertMaskedDataToMap(maskedData),
+				}
+				marshaled, err := json.Marshal(logMsg)
+				if err != nil {
+					log.Fatalf("Failed to marshal nginx log: %v", err)
+				}
+				pool.nginxLogsBytes[i] = marshaled
+			}
+		} else {
+			pool.nginxRawLogs = make([]string, poolSize)
+			baseTime := time.Now()
+			for i := range poolSize {
+				t := baseTime.Add(time.Duration(i) * time.Millisecond)
+				pool.nginxRawLogs[i] = generateNginxLog(t)
+			}
+		}
+	}
+
+	log.Printf("Payload pool generated successfully")
+	return pool
+}
+
 func run(ctx context.Context, config *Config) error {
+	// Generate payload pool at startup.
+	pool := generatePayloadPool(config)
+
 	// Optimized HTTP client for high-throughput load testing.
 	transport := &http.Transport{
 		MaxIdleConns:        1000,
@@ -285,7 +405,7 @@ func run(ctx context.Context, config *Config) error {
 
 	// Continuous mode: workers send as fast as possible.
 	if config.Period == 0 {
-		return runContinuous(ctx, client, config, stats)
+		return runContinuous(ctx, client, config, stats, pool)
 	}
 
 	// Periodic mode: workers send at regular intervals.
@@ -299,14 +419,14 @@ func run(ctx context.Context, config *Config) error {
 			stats.print()
 			return nil
 		case <-ticker.C:
-			if err := sendLogs(ctx, client, config, stats); err != nil {
+			if err := sendLogs(ctx, client, config, stats, pool); err != nil {
 				log.Printf("Failed to send logs: %v", err)
 			}
 		}
 	}
 }
 
-func runContinuous(ctx context.Context, client *http.Client, config *Config, stats *Stats) error {
+func runContinuous(ctx context.Context, client *http.Client, config *Config, stats *Stats, pool *PayloadPool) error {
 	var wg sync.WaitGroup
 
 	// Spawn workers that continuously send requests.
@@ -319,7 +439,7 @@ func runContinuous(ctx context.Context, client *http.Client, config *Config, sta
 				case <-ctx.Done():
 					return
 				default:
-					if err := sendBatch(client, config, config.Number, stats); err != nil {
+					if err := sendBatch(client, config, config.Number, stats, pool); err != nil {
 						log.Printf("Failed to send batch: %v", err)
 					}
 				}
@@ -334,13 +454,13 @@ func runContinuous(ctx context.Context, client *http.Client, config *Config, sta
 	return nil
 }
 
-func sendLogs(ctx context.Context, client *http.Client, config *Config, stats *Stats) error {
+func sendLogs(ctx context.Context, client *http.Client, config *Config, stats *Stats, pool *PayloadPool) error {
 	if config.Workers <= 1 {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			return sendBatch(client, config, config.Number, stats)
+			return sendBatch(client, config, config.Number, stats, pool)
 		}
 	}
 
@@ -355,7 +475,7 @@ func sendLogs(ctx context.Context, client *http.Client, config *Config, stats *S
 			case <-ctx.Done():
 				errChan <- ctx.Err()
 			default:
-				if err := sendBatch(client, config, config.Number, stats); err != nil {
+				if err := sendBatch(client, config, config.Number, stats, pool); err != nil {
 					errChan <- err
 				}
 			}
@@ -373,107 +493,95 @@ func sendLogs(ctx context.Context, client *http.Client, config *Config, stats *S
 	return nil
 }
 
-// Cached payloads for maximum throughput.
-var (
-	cachedMaskedOnce  sync.Once
-	cachedMaskedBody  []byte
-	cachedMaskedErr   error
-	cachedLogOnce     sync.Once
-	cachedLogBody     []byte
-	cachedLogErr      error
-	cachedDatadogOnce sync.Once
-	cachedDatadogBody []byte
-	cachedDatadogErr  error
-)
+// formatPayloadFromBytes formats a batch of pre-marshaled JSON payloads according to the specified format style.
+func formatPayloadFromBytes(formatStyle string, numLogs int, poolBytes [][]byte) ([]byte, error) {
+	if len(poolBytes) == 0 {
+		return nil, fmt.Errorf("empty payload pool")
+	}
 
-func sendBatch(client *http.Client, config *Config, numLogs int, stats *Stats) error {
+	switch formatStyle {
+	case "array":
+		// JSON array format: [{...}, {...}]
+		var buf bytes.Buffer
+		buf.WriteByte('[')
+		for i := range numLogs {
+			if i > 0 {
+				buf.WriteByte(',')
+			}
+			randomPayload := poolBytes[rand.Intn(len(poolBytes))]
+			buf.Write(randomPayload)
+		}
+		buf.WriteByte(']')
+		return buf.Bytes(), nil
+
+	case "single":
+		// Single JSON object (only first item).
+		randomPayload := poolBytes[rand.Intn(len(poolBytes))]
+		return randomPayload, nil
+
+	default: // ndjson
+		// Newline-delimited JSON format.
+		var buf bytes.Buffer
+		for range numLogs {
+			randomPayload := poolBytes[rand.Intn(len(poolBytes))]
+			buf.Write(randomPayload)
+			buf.WriteByte('\n')
+		}
+		return buf.Bytes(), nil
+	}
+}
+
+// selectRandomStrings selects random strings from the pool and joins them with newlines.
+func selectRandomStrings(pool []string, numLogs int) string {
+	if len(pool) == 0 {
+		return ""
+	}
+
+	selected := make([]string, numLogs)
+	for i := range numLogs {
+		selected[i] = pool[rand.Intn(len(pool))]
+	}
+	return strings.Join(selected, "\n") + "\n"
+}
+
+func sendBatch(client *http.Client, config *Config, numLogs int, stats *Stats, pool *PayloadPool) error {
 	var body []byte
 	var err error
 
+	// Select random pre-marshaled payloads from the pool and format according to format-style.
+	// No JSON marshaling happens here - just byte concatenation for maximum performance.
 	switch config.Format {
 	case "masked_log":
-		cachedMaskedOnce.Do(func() {
-			batch := make([]MaskedData, numLogs)
-			for i := 0; i < numLogs; i++ {
-				batch[i] = generateMaskedData()
-			}
-			cachedMaskedBody, cachedMaskedErr = json.Marshal(batch)
-		})
-		if cachedMaskedErr != nil {
-			return fmt.Errorf("failed to marshal masked data: %w", cachedMaskedErr)
+		body, err = formatPayloadFromBytes(config.FormatStyle, numLogs, pool.maskedDataBytes)
+		if err != nil {
+			return fmt.Errorf("failed to format masked data: %w", err)
 		}
-		body = cachedMaskedBody
 
 	case "datadog":
-		cachedDatadogOnce.Do(func() {
-			logs := make([]datadogLog, numLogs)
-			for i := 0; i < numLogs; i++ {
-				logs[i] = generateDatadogLog(time.Now(), int64(i))
-			}
-			cachedDatadogBody, cachedDatadogErr = json.Marshal(logs)
-		})
-		if cachedDatadogErr != nil {
-			return fmt.Errorf("failed to marshal datadog logs: %w", cachedDatadogErr)
+		body, err = formatPayloadFromBytes(config.FormatStyle, numLogs, pool.datadogBytes)
+		if err != nil {
+			return fmt.Errorf("failed to format datadog logs: %w", err)
 		}
-		body = cachedDatadogBody
 
 	case "apache_combined":
-		cachedLogOnce.Do(func() {
-			if config.ContentType == "application/json" {
-				logMessages := make([]LogMessage, numLogs)
-				for i := 0; i < numLogs; i++ {
-					logLine := generateApacheLog(time.Now())
-					maskedData := generateMaskedData()
-
-					logMessages[i] = LogMessage{
-						Timestamp: time.Now().Format(time.RFC3339),
-						Message:   logLine,
-						AppType:   "apache",
-						PII:       convertMaskedDataToMap(maskedData),
-					}
-				}
-				cachedLogBody, cachedLogErr = json.Marshal(logMessages)
-			} else {
-				var logs []string
-				for i := 0; i < numLogs; i++ {
-					logs = append(logs, generateApacheLog(time.Now()))
-				}
-				cachedLogBody = []byte(strings.Join(logs, "\n") + "\n")
+		if config.ContentType == "application/json" {
+			body, err = formatPayloadFromBytes(config.FormatStyle, numLogs, pool.apacheLogsBytes)
+			if err != nil {
+				return fmt.Errorf("failed to format apache logs: %w", err)
 			}
-		})
-		if cachedLogErr != nil {
-			return cachedLogErr
+		} else {
+			body = []byte(selectRandomStrings(pool.apacheRawLogs, numLogs))
 		}
-		body = cachedLogBody
 
 	default: // nginx_log
-		cachedLogOnce.Do(func() {
-			if config.ContentType == "application/json" {
-				logMessages := make([]LogMessage, numLogs)
-				for i := 0; i < numLogs; i++ {
-					logLine := generateNginxLog(time.Now())
-					maskedData := generateMaskedData()
-
-					logMessages[i] = LogMessage{
-						Timestamp: time.Now().Format(time.RFC3339),
-						Message:   logLine,
-						AppType:   "nginx",
-						PII:       convertMaskedDataToMap(maskedData),
-					}
-				}
-				cachedLogBody, cachedLogErr = json.Marshal(logMessages)
-			} else {
-				var logs []string
-				for i := 0; i < numLogs; i++ {
-					logs = append(logs, generateNginxLog(time.Now()))
-				}
-				cachedLogBody = []byte(strings.Join(logs, "\n") + "\n")
+		if config.ContentType == "application/json" {
+			body, err = formatPayloadFromBytes(config.FormatStyle, numLogs, pool.nginxLogsBytes)
+			if err != nil {
+				return fmt.Errorf("failed to format nginx logs: %w", err)
 			}
-		})
-		if cachedLogErr != nil {
-			return cachedLogErr
+		} else {
+			body = []byte(selectRandomStrings(pool.nginxRawLogs, numLogs))
 		}
-		body = cachedLogBody
 	}
 
 	req, err := http.NewRequest("POST", config.Endpoint, bytes.NewReader(body))
@@ -587,7 +695,7 @@ func generateIBAN() string {
 	remaining := c.length - 4
 
 	accountNumber := ""
-	for i := 0; i < remaining; i++ {
+	for range remaining {
 		accountNumber += fmt.Sprintf("%d", rand.Intn(10))
 	}
 
