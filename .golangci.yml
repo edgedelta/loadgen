@@ -1,0 +1,36 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - bodyclose
+    - gosec
+    - misspell
+    - revive
+    - whitespace
+  settings:
+    gosec:
+      excludes:
+        - G602  # Allow slice index out of range
+        - G204  # Subprocess with variable arguments (false positive for PID conversions)
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - path: (.+)\.go$
+        text: G115
+      - path: (.+)\.go$
+        text: G404
+    paths:
+      - examples$
+
+output:
+  formats:
+    text:
+      path: stdout
