@@ -14,6 +14,7 @@ linters:
     gosec:
       excludes:
         - G602  # Allow slice index out of range
+        - G204  # Subprocess with variable arguments (false positive for PID conversions)
   exclusions:
     generated: lax
     presets:
