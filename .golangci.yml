@@ -1,3 +1,5 @@
+version: "2"
+
 run:
   timeout: 5m
 
@@ -8,23 +10,26 @@ linters:
     - misspell
     - revive
     - whitespace
-
-linters-settings:
-  gosec:
-    excludes:
-      - G602  # Allow slice index out of range
-
-issues:
-  exclude:
-    - G115  # Integer overflow conversion
-    - G404  # Weak random number generator
-  exclude-rules:
-    # Exclude examples directory from linting
-    - path: examples/
-      linters:
-        - gosec
-        - revive
+  settings:
+    gosec:
+      excludes:
+        - G602  # Allow slice index out of range
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - path: (.+)\.go$
+        text: G115
+      - path: (.+)\.go$
+        text: G404
+    paths:
+      - examples$
 
 output:
   formats:
-    - format: colored-line-number
+    text:
+      path: stdout
