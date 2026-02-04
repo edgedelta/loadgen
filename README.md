@@ -1,6 +1,6 @@
-# HTTP Log Generator
+# Load Generator
 
-A high-performance HTTP log generator for load testing log ingestion pipelines and observability systems.
+A high-performance load generator for testing log ingestion pipelines, observability systems, and HTTP endpoints.
 
 ## Features
 
