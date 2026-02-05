@@ -13,6 +13,16 @@ import (
 	"time"
 )
 
+// MonitorType represents the type of process monitoring.
+type MonitorType string
+
+const (
+	// MonitorTypeSelf indicates monitoring of loadgen's own process.
+	MonitorTypeSelf MonitorType = "SELF"
+	// MonitorTypeTarget indicates monitoring of a target process.
+	MonitorTypeTarget MonitorType = "TARGET"
+)
+
 // ProcessStats tracks process monitoring metrics.
 type ProcessStats struct {
 	mu          sync.Mutex
@@ -21,6 +31,7 @@ type ProcessStats struct {
 	memoryMB    float64
 	threadCount int
 	processName string
+	monitorType MonitorType
 }
 
 func (ps *ProcessStats) update(cpu float64, mem float64, threads int) {
@@ -34,8 +45,15 @@ func (ps *ProcessStats) update(cpu float64, mem float64, threads int) {
 func (ps *ProcessStats) print() {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
-	fmt.Printf("[MONITOR] pid: %d | cpu: %.1f%% | memory: %.1fMB | threads: %d\n",
-		ps.pid, ps.cpuPercent, ps.memoryMB, ps.threadCount)
+
+	prefix := fmt.Sprintf("[MONITOR - %s]", ps.monitorType)
+	if ps.processName != "" {
+		fmt.Printf("%s %s | pid: %d | cpu: %.1f%% | memory: %.1fMB | threads: %d\n",
+			prefix, ps.processName, ps.pid, ps.cpuPercent, ps.memoryMB, ps.threadCount)
+	} else {
+		fmt.Printf("%s pid: %d | cpu: %.1f%% | memory: %.1fMB | threads: %d\n",
+			prefix, ps.pid, ps.cpuPercent, ps.memoryMB, ps.threadCount)
+	}
 }
 
 // findProcessByName finds a process PID by name using pgrep.
@@ -257,39 +275,6 @@ func monitorProcess(ctx context.Context, stats *ProcessStats, interval time.Dura
 			cpu, mem, threads, err := collectProcessMetrics(stats.pid, sampleInterval)
 			if err != nil {
 				log.Printf("Failed to collect process metrics: %v", err)
-				return
-			}
-			stats.update(cpu, mem, threads)
-			stats.print()
-		}
-	}
-}
-
-// runMonitoringOnly runs monitoring as the main execution path (blocking).
-func runMonitoringOnly(ctx context.Context, stats *ProcessStats, interval time.Duration) {
-	log.Printf("Monitoring process PID %d (press Ctrl+C to stop)", stats.pid)
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	sampleInterval := calculateSampleInterval(interval)
-
-	cpu, mem, threads, err := collectProcessMetrics(stats.pid, sampleInterval)
-	if err != nil {
-		log.Fatalf("Failed to collect initial metrics: %v", err)
-	}
-	stats.update(cpu, mem, threads)
-	stats.print()
-
-	for {
-		select {
-		case <-ctx.Done():
-			log.Println("Monitoring stopped")
-			return
-		case <-ticker.C:
-			cpu, mem, threads, err := collectProcessMetrics(stats.pid, sampleInterval)
-			if err != nil {
-				log.Printf("Process terminated or monitoring failed: %v", err)
 				return
 			}
 			stats.update(cpu, mem, threads)
