@@ -12,7 +12,7 @@ A high-performance load generator for testing log ingestion pipelines, observabi
 - **Continuous mode**: Maximum speed testing with `--period 0`
 - **Real-time stats**: Current and average throughput metrics
 - **Backpressure detection**: Tracks 429/503 responses
-- **Process monitoring**: Monitor CPU, memory, and threads of any process
+- **Process monitoring**: Monitor CPU, memory, and threads of target processes and loadgen itself
 - **Cross-platform**: Supports macOS and Linux
 - **Zero dependencies**: Only requires `gofakeit` for data generation
 
@@ -120,6 +120,9 @@ Process Monitoring Options:
 
   -monitor-pid int
         PID of process to monitor (0 means disabled)
+
+  -monitor-self
+        Monitor loadgen's own resource usage (default false)
 
   -monitor-interval duration
         Interval for process monitoring stats (default 5s)
@@ -248,7 +251,7 @@ Output (JSON array):
 
 ### Process Monitoring
 
-Monitor a process without generating load:
+Monitor a target process without generating load:
 
 ```bash
 # Monitor by process name
@@ -263,25 +266,24 @@ Monitor a process without generating load:
 
 **Output:**
 ```
-[MONITOR] pid: 12345 | cpu: 45.3% | memory: 234.5MB | threads: 28
+[MONITOR - TARGET] edgedelta | pid: 12345 | cpu: 45.3% | memory: 234.5MB | threads: 28
 ```
 
-Monitor a process while generating load:
+Monitor loadgen's own resource usage:
 
 ```bash
-# Observe how load impacts the monitored process
-./loadgen \
-    --endpoint http://localhost:8085 \
-    --format nginx_log \
-    --workers 48 \
-    --period 10ms \
-    --monitor-process edgedelta
+# Monitor self only
+./loadgen --monitor-self --endpoint http://localhost:8085 --workers 100
+
+# Monitor both loadgen and target process
+./loadgen --monitor-self --monitor-process edgedelta --endpoint http://localhost:8085 --workers 100
 ```
 
-**Output:**
+**Output (dual monitoring):**
 ```
 [STATS] current: 1000 logs/sec, 0.64 MB/s | avg: 1000 logs/sec | total: 5000 | errors: 0 | backpressure: 0 (0.0%)
-[MONITOR] pid: 12345 | cpu: 45.3% | memory: 234.5MB | threads: 28
+[MONITOR - SELF] loadgen | pid: 8045 | cpu: 15.2% | memory: 45.3MB | threads: 11
+[MONITOR - TARGET] edgedelta | pid: 12345 | cpu: 45.3% | memory: 234.5MB | threads: 28
 ```
 
 **Monitoring Metrics:**
@@ -316,6 +318,9 @@ The tool prints real-time statistics every 5 seconds:
    - Smaller pools (10-50): Less memory, faster startup, sufficient for most load tests
    - Larger pools (500-1000): More variety, useful for testing unique value handling
 6. **Format style**: NDJSON (`--format-style ndjson`) is default and works with most log systems
+7. **Self-monitoring**: Use `--monitor-self` to ensure loadgen isn't the bottleneck
+   - If loadgen CPU is maxed out, reduce workers or use multiple instances
+   - Helps distinguish between generator and target system performance issues
 
 ## How It Works
 
