@@ -36,6 +36,8 @@ type Config struct {
 	MonitorSelf     bool
 	MonitorInterval time.Duration
 	PayloadPoolSize int
+	MaxRetries      int
+	RetryAmbiguous  bool
 }
 
 // LogMessage represents a structured log entry.
@@ -85,16 +87,20 @@ type PayloadPool struct {
 
 // Stats tracks performance metrics.
 type Stats struct {
-	mu                sync.Mutex
-	successfulLogs    int64
-	totalLogs         int64
-	totalBytes        int64
-	httpErrors        int64
-	backpressureCount int64
-	startTime         time.Time
-	lastPrintTime     time.Time
-	lastPrintLogs     int64
-	lastPrintBytes    int64
+	mu                  sync.Mutex
+	successfulLogs      int64
+	totalLogs           int64
+	totalBytes          int64
+	httpErrors          int64
+	connectionErrors    int64
+	retryAttempts       int64
+	recoveredRequests   int64
+	ambiguousDeliveries int64
+	backpressureCount   int64
+	startTime           time.Time
+	lastPrintTime       time.Time
+	lastPrintLogs       int64
+	lastPrintBytes      int64
 }
 
 func (s *Stats) recordSuccess(bytes int) {
@@ -157,11 +163,11 @@ func (s *Stats) print() {
 	}
 
 	if currentLogsPerSec > 0 {
-		fmt.Printf("[STATS] current: %.2f logs/sec, %.2f MB/s | avg: %.2f logs/sec | total: %d | errors: %d | backpressure: %d (%.1f%%)\n",
-			currentLogsPerSec, currentThroughputMBps, avgLogsPerSec, s.totalLogs, s.httpErrors, s.backpressureCount, backpressurePct)
+		fmt.Printf("[STATS] current: %.2f logs/sec, %.2f MB/s | avg: %.2f logs/sec | total: %d | errors: %d | backpressure: %d (%.1f%%) | connection_errors: %d | retry_attempts: %d | recovered_requests: %d | ambiguous_deliveries: %d\n",
+			currentLogsPerSec, currentThroughputMBps, avgLogsPerSec, s.totalLogs, s.httpErrors, s.backpressureCount, backpressurePct, s.connectionErrors, s.retryAttempts, s.recoveredRequests, s.ambiguousDeliveries)
 	} else {
-		fmt.Printf("[STATS] avg: %.2f logs/sec | total: %d | throughput: %.2f MB/s | errors: %d | backpressure: %d (%.1f%%)\n",
-			avgLogsPerSec, s.totalLogs, avgThroughputMBps, s.httpErrors, s.backpressureCount, backpressurePct)
+		fmt.Printf("[STATS] avg: %.2f logs/sec | total: %d | throughput: %.2f MB/s | errors: %d | backpressure: %d (%.1f%%) | connection_errors: %d | retry_attempts: %d | recovered_requests: %d | ambiguous_deliveries: %d\n",
+			avgLogsPerSec, s.totalLogs, avgThroughputMBps, s.httpErrors, s.backpressureCount, backpressurePct, s.connectionErrors, s.retryAttempts, s.recoveredRequests, s.ambiguousDeliveries)
 	}
 }
 
@@ -277,7 +283,12 @@ func parseFlags() *Config {
 	monitorSelf := flag.Bool("monitor-self", false, "Monitor loadgen's own resource usage")
 	monitorInterval := flag.Duration("monitor-interval", 5*time.Second, "Interval for process monitoring stats")
 	payloadPoolSize := flag.Int("payload-pool-size", 100, "Number of unique payloads to generate in the pool")
+	maxRetries := flag.Int("max-retries", 2, "Maximum additional attempts for connection failures (0 disables retries)")
+	retryAmbiguous := flag.Bool("retry-ambiguous", false, "Retry potentially delivered POSTs; may ingest duplicates (at-least-once semantics)")
 	flag.Parse()
+	if *maxRetries < 0 || *maxRetries > 2 {
+		log.Fatal("max-retries must be between 0 and 2")
+	}
 
 	return &Config{
 		Endpoint:        *endpoint,
@@ -294,6 +305,8 @@ func parseFlags() *Config {
 		MonitorSelf:     *monitorSelf,
 		MonitorInterval: *monitorInterval,
 		PayloadPoolSize: *payloadPoolSize,
+		MaxRetries:      *maxRetries,
+		RetryAmbiguous:  *retryAmbiguous,
 	}
 }
 
@@ -410,13 +423,16 @@ func run(ctx context.Context, config *Config) error {
 		DisableKeepAlives:   false,
 	}
 
+	stats := &Stats{startTime: time.Now()}
+	// Retries bypass the idle pool without evicting other workers' connections.
+	fresh := transport.Clone()
+	fresh.DisableKeepAlives = true
+	defer transport.CloseIdleConnections()
+	defer fresh.CloseIdleConnections()
 	client := &http.Client{
-		Timeout:   config.Timeout,
-		Transport: transport,
-	}
-
-	stats := &Stats{
-		startTime: time.Now(),
+		Timeout: config.Timeout, // Covers all attempts, backoff and response reading.
+		Transport: &retryTransport{base: transport, fresh: fresh, stats: stats,
+			maxRetries: config.MaxRetries, retryAmbiguous: config.RetryAmbiguous},
 	}
 
 	// Print stats every 5 seconds.
@@ -628,7 +644,7 @@ func sendBatch(client *http.Client, config *Config, numLogs int, stats *Stats, p
 		return fmt.Errorf("failed to send HTTP request: %w", err)
 	}
 
-	_, _ = io.Copy(io.Discard, resp.Body)
+	_, readErr := io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
@@ -640,6 +656,10 @@ func sendBatch(client *http.Client, config *Config, numLogs int, stats *Stats, p
 		return fmt.Errorf("HTTP request failed with status %d", resp.StatusCode)
 	}
 
+	if readErr != nil {
+		stats.recordError(len(body))
+		return fmt.Errorf("failed to read HTTP response: %w", readErr)
+	}
 	stats.recordSuccess(len(body))
 	return nil
 }
