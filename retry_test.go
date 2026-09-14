@@ -81,7 +81,9 @@ func TestConnectionRotation(t *testing.T) {
 
 func TestGracefulCloseNeedsNoApplicationRetry(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.Copy(io.Discard, r.Body)
+		if _, err := io.Copy(io.Discard, r.Body); err != nil {
+			t.Error(err)
+		}
 		w.Header().Set("Connection", "close")
 		w.WriteHeader(200)
 	}))
@@ -123,7 +125,7 @@ func TestRequestDeadlineSpansRetries(t *testing.T) {
 func TestHTTPFailuresAreNotRetried(t *testing.T) {
 	for _, status := range []int{400, 429, 500, 503} {
 		var attempts atomic.Int64
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { attempts.Add(1); w.WriteHeader(status) }))
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { attempts.Add(1); w.WriteHeader(status) }))
 		stats := &Stats{}
 		client := testClient(stats, true, time.Second)
 		config := &Config{Endpoint: server.URL, ContentType: "application/json", FormatStyle: "single"}
@@ -139,7 +141,9 @@ func TestHTTPFailuresAreNotRetried(t *testing.T) {
 func TestRecoveredBatchCountedOnce(t *testing.T) {
 	var attempts atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.Copy(io.Discard, r.Body)
+		if _, err := io.Copy(io.Discard, r.Body); err != nil {
+			t.Error(err)
+		}
 		if attempts.Add(1) == 1 {
 			conn, _, _ := w.(http.Hijacker).Hijack()
 			conn.Close()
@@ -176,11 +180,15 @@ func TestSafeRetryDoesNotRequireAmbiguousOptIn(t *testing.T) {
 func TestTruncatedResponseIsNotRecovered(t *testing.T) {
 	var attempts atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.Copy(io.Discard, r.Body)
+		if _, err := io.Copy(io.Discard, r.Body); err != nil {
+			t.Error(err)
+		}
 		conn, _, _ := w.(http.Hijacker).Hijack()
 		defer conn.Close()
 		if attempts.Add(1) > 1 {
-			io.WriteString(conn, "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nshort")
+			if _, err := io.WriteString(conn, "HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nshort"); err != nil {
+				t.Error(err)
+			}
 		}
 	}))
 	defer server.Close()
@@ -197,12 +205,15 @@ func TestCanceledRequestDoesNotRetry(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	stats := &Stats{}
-	transport := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+	transport := roundTripFunc(func(_ *http.Request) (*http.Response, error) {
 		t.Error("transport called after cancellation")
 		return nil, io.EOF
 	})
 	req, _ := http.NewRequestWithContext(ctx, "POST", "http://example.invalid", bytes.NewReader([]byte(`{}`)))
-	_, err := (&retryTransport{base: transport, fresh: transport, stats: stats, maxRetries: 2, retryAmbiguous: true}).RoundTrip(req)
+	resp, err := (&retryTransport{base: transport, fresh: transport, stats: stats, maxRetries: 2, retryAmbiguous: true}).RoundTrip(req)
+	if resp != nil {
+		resp.Body.Close()
+	}
 	if !errors.Is(err, context.Canceled) || stats.retryAttempts != 0 {
 		t.Fatalf("err=%v stats=%+v", err, stats)
 	}
